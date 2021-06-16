@@ -1,0 +1,139 @@
+RTETRIS 4.0
+
+-------------------------------------------------------------------------------------------------
+------------888888888-----88------88------88888888------88------88-------------------------------
+-----------888------------88------88-----888----888-----88------88-------------------------------
+-----------88-------------88------88-----88------88-----88------88-------------------------------
+-----------88-------------88------88-----88------88-----88------88-------------------------------
+-----------88-------------8888888888-----88------88-----88------88-------------------------------
+-----------88-------------88------88-----88------88-----88------88-------------------------------
+-----------888------------88------88-----888----888-----888----888-------------------------------
+------------888888888-----88------88------88888888-------88888888--------------------------------
+-------------------------------------------------------------------------------------------------
+
+
+Hecho por Juan Carlos Perez Casal en verano de 1997.
+Mejorado durante 1998,2002,2003.
+
+Lenguaje usado: Turbo Pascal 7.
+
+
+TECLAS
+-------------------------------------------------------------------------------------------------
+
+JUGADOR1:
+
+Izquierda   cursor Izquierdo
+Derecha     cursor Derecho
+Abajo       cursor Abajo
+Giro1       cursor Arriba
+Giro2       Control
+Pausa       Tecla F12
+
+JUGADOR2:
+
+Izquierda   Tecla F
+Derecha     Tecla H
+Abajo       Tecla G
+Giro1       Tecla T
+Giro2       Espacio
+Pausa       Tecla F1
+
+ALT+X       Salir del juego al momento durante una partida (por si te pillan viciando)
+
+
+MODOS DE JUEGO
+-------------------------------------------------------------------------------------------------
+
+1 Jugador: Compite para lograr el mayor numero de puntos y lineas.
+2 Jugadores: Modo Normal y Death.
+Modo Normal: Se juega en partidas individuales
+Modo Death: Los 2 jugadores compiten entre ellos
+            (se gana cuando pierde el contrario o se hacen 100 lineas)
+Tactica por defecto:
+            Por 1 linea  -> Mandas 1 linea
+            Por 2 lineas -> Mandas 2 lineas
+            Por 3 lineas -> Mandas 3 lineas
+            Por 4 lineas -> Mandas 4 lineas
+            ...
+si pulsas enter durante la puesta de sol final, se repite la partida death
+
+
+OPCIONES
+-------------------------------------------------------------------------------------------------
+
+En las opciones puedes elegir:
+LINEAS    -> Para empezar la partida con las lineas que eligas (modo Normal)
+VELOCIDAD -> Cambias la velocidad del juego (0 - lento, 19 - rápido)
+ALTURA    -> Pone unos cuadrados aleatorios para complicarte (decides cuantos quieres)
+TACTICA   -> Eliges cuantas lineas mandas al contrario
+
+
+FICHAS
+-------------------------------------------------------------------------------------------------
+
+**** LARGA DE 4 AZUL
+
+**   CUADRADO VERDE CLARO
+**
+
+***  L CELESTE
+*
+
+***  L ROJA
+  *
+
+**   S AMARILLA
+ **
+
+ **  S MORADA
+**
+
+***  T NARANJA
+ *
+
+****** LARGA DE 6 CON CRUCES
+
+******** LARGA DE 8 CON CRUCES
+
+********** LARGA DE 10 BLANCA
+
+ *
+***  ESTRELLA BLANCA
+ *
+
+*
+*    L GRANDE VERDE OSCURO
+***
+
+****
+**** MEGACUADRADO VERDE OSCURO
+****
+****
+
+*    PUNTO MULTICOLOR
+
+El Punto sirve para arreglarlo casi todo. Si lo giras cambia de color.
+Si lo colocas encima de un cuadrado del mismo color, todos los cuadrados de ese color DESPARECEN.
+Puedes mandar un monton de lineas al contrario, mandas una linea por cada 10 cuadrados.
+SI LE DAS 3 VECES AL GIRO2 (BARRA O CTRL) EL PUNTO SE PONE BLANCO Y PUEDES DESHACER LOS BLANCOS
+
+
+REPETICIONES
+-------------------------------------------------------------------------------------------------
+
+Para ver la repeticion de cualquier partida pulsa Enter cuando pierdas (durante los circulos)
+Pulsa R al principio, en los records, para ver las repeticiones grabadas
+
+TECLAS:
+
+Insert  Quita la pausa
+Supr    Pone la pausa
+Inicio  Va al inicio de la repeticion
+Fin     Va casi al final de la repeticion
+RePag   Va atras en la repeticion
+AvPag   Va alante en la repeticion
++ Mas   Aumenta la velocidad (solo el mas del teclado numerico)
+- Menos Reduce la velocidad (solo el menos del teclado numerico)
+Esc     Salir y grabar (si no le pones nombre no se graba)
+

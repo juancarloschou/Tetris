@@ -1,0 +1,2482 @@
+{$R+}
+
+program rTetris7;
+
+
+  {rTetris1: (2001)
+Version basada en el Tetris original de 1997}
+
+  {rTetris2: (2002)
+Solucionada la desaparicion de fichas
+Velocidad constante, acelerada la velocidad y ajustada a la veloc de la CPU
+Menu de Opciones, altura inicial, menus en pantalla virtual
+Nuevas fichas: Largas de 6 y 8, cuadrados grande y peque¤o (desaparece color)}
+
+  {rTetris3:
+Intento de que vengan mas octotetris y puntos cuando estes lleno (sin hacer)}
+
+  {rTetris4: (2003)
+Mejor justificacion del codigo y uso eficiente de la memoria
+Repeticion de jugadas grabables. Cuando mandas el agujero sale centrado
+Mas fichas: Decatetris, estrellas, L grande
+Opcion de jugar con distintos tipos de fichas
+Mandas 3 o 5 lineas extra si te vacias (3->deshaciendo, 5->lineas)}
+
+  {rTetris5:
+Grupos de 4*4 o 5*5 atacan mandando ptos aleat y doblando los ptos del enemigo (NO Dobla!, NO Aleat!)
+Cuando desaparezca algo hacer ptos que disminuyan grosor
+Al aparecer algo (doblar colores) que aumenten de grosor
+
+{Ke pasa si se hacen lineas y se deshace a la vez, falla?}
+
+  {rTetris6:
+Suben lineas de 1 en 1 por tpo !!!
+Atake cuad 8*8 de megacuadrados (PROBARLO)}
+
+
+{Por Hacer:
+Ficha Bomba peq (rompe cacho) y grande (rompe hasta abajo y entre huecos)
+Manda algo que sea negro y con el hueco desordenado (en escalera):
+
+bbbb bbbbb
+bbbb bbbbb
+nnnnn nnnn
+nnnnnn nnn
+nnnnnnn nn
+nnnnnnnn n
+
+Torneo y Liga: Comprando atakes (mandar mas) y defensas (recibir menos da¤o)
+Mas Opciones: Suben lineas 1 a 1, aparecen o desaparecen ptos de 1 en 1,
+ Mandar o no los 4*5 ptos, fichas tienden a repetirse, mas pto multicolor...}
+
+{Modo 1 jug por niveles cada vez mas dificil, con ptos aleat al ppio (ver fantasy tetris)}
+
+
+
+
+
+uses Crt,dos,Graph,Imagen,Pcx,Piezas,Teclas,Tetris;
+
+
+
+
+
+function Romper(var Pantalla:tPantalla; color:byte):integer;
+var
+  r,iI,iJ,iK:integer;
+
+begin
+r:=0;
+for iJ:=0 to 17 do
+  for iI:=1 to 10 do
+    if Pantalla[iI,iJ]=color then
+      begin
+        Pantalla[iI,iJ]:=0;
+        inc(r);
+        for ik:=iJ downto 1 do
+          Pantalla[iI,ik]:= Pantalla[iI,ik-1];
+        Pantalla[iI,0]:=0;
+      end;
+
+Romper:=r;
+end; (*procedure Romper*)
+
+
+
+
+
+function LaPieza10(var eMarcador:tMarcador):boolean;
+var
+  i:integer;
+  Pieza:boolean;
+
+begin
+Pieza:=false;
+with eMarcador do
+  begin
+    if Nombre=NombreJug1 then
+      i:=Pantalla1[iPiezaX,iPiezaY+1] {color abajo}
+    else
+      i:=Pantalla2[iPiezaX,iPiezaY+1];
+
+    if ePieza.color=i then
+      begin {romper mazo}
+        eDeshaz.bDeshaz:=true;
+        eDeshaz.Tipo:=1;
+        eDeshaz.Color:=i;
+        Pieza:=true;
+      end;
+  end;
+
+LaPieza10:=Pieza;
+end; (*procedure LaPieza10*)
+
+
+
+
+
+procedure RomperCuad(var Pantalla:tPantalla; eCuad:tCuadColor);
+var
+  i,iI,iJ,iK:integer;
+
+begin
+for i:=1 to eCuad.yCuantas do
+  begin
+    iI:=eCuad.aCual[i].x;
+    iJ:=eCuad.aCual[i].y;
+
+    Pantalla[iI,iJ]:=0;
+    for ik:=iJ downto 1 do
+      Pantalla[iI,ik]:=Pantalla[iI,ik-1];
+    Pantalla[iI,0]:=0;
+  end;
+
+end; (*procedure RomperCuad*)
+
+
+
+
+
+procedure PonPuntos(var Pantalla:tPantalla; col:byte; bPerfect:boolean);
+{si es perfecto pones ptos de dist color y 2 extra}
+var
+  i,c,Num,iI,iJ:integer;
+
+begin
+case col of
+  1,2,3,4: if bPerfect then
+             Num:=5
+           else
+             Num:=4;
+  5,6,7,11,12,13: Num:=5;
+end;
+
+for i:=1 to Num do {4 o 5 ptos}
+  begin
+      iJ:=15-i;
+      case iJ of
+        14: begin
+              iI:=6;
+              c:=1;
+            end;
+        13: begin
+              iI:=4;
+              c:=6;
+            end;
+        12: begin
+              iI:=8;
+              c:=3;
+            end;
+        11: begin
+              iI:=3;
+              c:=7;
+            end;
+        10: begin
+              iI:=5; {maximo 5 ptos}
+              c:=4;
+            end;
+      end;
+
+    if bPerfect then
+      Pantalla[iI,iJ]:=c
+    else
+      Pantalla[iI,iJ]:=col; {si no es perfect todos del mismo color}
+  end;
+
+{2 ptos extra}
+if bPerfect then
+  begin
+    Pantalla[7,9]:=2;
+    Pantalla[6,11]:=5;
+  end;
+end;
+
+
+
+
+
+function Comprobar(taman,x,y,col:integer; var Pan:tPantalla;
+                   var eCuad:tCuadColor):boolean;
+var
+  h,v:integer;
+  b:boolean;
+
+begin
+b:=true;
+v:=0; h:=0;
+repeat
+  if Pan[x+h,y+v]<>col then
+    b:=false;
+
+  h:=h+1;
+  if h>=taman then
+    begin
+      h:=0;
+      v:=v+1;
+    end;
+until (v>=taman) or (not b);
+
+if b then
+  if taman>eCuad.Tipo then
+    begin
+      eCuad.Tipo:=taman;
+      eCuad.yCuantas:=taman*taman;
+      eCuad.aCual[1].x:=x;
+      eCuad.aCual[1].y:=y;
+    end;
+
+Comprobar:=b;
+end;
+
+
+
+
+
+function CuadColor(var eMarcador:tMarcador):boolean;
+var
+  col,i,x,y,h,v:integer;
+  b,com,Cuad:boolean;
+  Pan:tPantalla;
+
+begin
+Cuad:=false;
+
+{METER ESTO EN PROCEDIM CON COLOR DE PARAM, PARA HACERLO DESPUES DESHAZ CON
+TODOS COLORES, AL POSAR LAS FICHAS !!!}
+
+with eMarcador do
+  begin
+    col:=ePieza.Color;
+
+    eCuad.Tipo:=0;
+    com:=false;
+
+    if Nombre=NombreJug1 then
+      Pan:=Pantalla1
+    else
+      Pan:=Pantalla2;
+
+    for y:=0 to 17 do
+      for x:=1 to 10 do
+        if Pan[x,y]=col then
+          begin
+            if col=12 then
+              begin
+                b:=Comprobar(8,x,y,col,Pan,eCuad);
+                if not b then
+                  b:=Comprobar(5,x,y,col,Pan,eCuad);
+              end
+            else
+              if col<8 then
+                b:=Comprobar(4,x,y,col,Pan,eCuad)
+              else
+                b:=Comprobar(5,x,y,col,Pan,eCuad);
+
+            if b then
+              com:=true;
+          end;
+
+    if com then {Hay Cuadrado de color}
+      begin
+        x:=eCuad.aCual[1].x;
+        y:=eCuad.aCual[1].y;
+
+        v:=0; h:=0;
+        for i:=1 to eCuad.yCuantas do
+          begin
+            eCuad.aCual[i].x:=x+h;
+            eCuad.aCual[i].y:=y+v;
+
+            h:=h+1;
+            if h>=eCuad.Tipo then
+              begin
+                h:=0;
+                v:=v+1;
+              end;
+          end;
+
+        eDeshaz.bDeshaz:=true;
+        eDeshaz.Tipo:=2;
+        eCuad.Color:=col;
+
+
+        {if col=13 then
+          edeshaz.tipo:=2; {quit, linea para breakpoint !!!}
+
+        Cuad:=true;
+      end;
+  end;
+
+CuadColor:=Cuad;
+end;
+
+
+
+
+
+function NuevaPieza(var eMarcador:tMarcador; var Pantalla:tPantalla;
+                    var G:tGrabar):boolean; {dev true si no manejas nueva ficha}
+var
+  iI,iJ:integer;
+  bSalir,bLleno,bHayAlguna,bNueva:boolean;
+  abLinea:array[0..17] of boolean; {dice las lineas hechas->trues}
+
+begin
+{++++++++++++++++++}
+
+bNueva:=true;
+bSalir:=false;
+with eMarcador do
+  begin
+    if (ePieza.tipo=10) and (ePieza.color<>0) then {pto multicolor}
+      bSalir:=LaPieza10(eMarcador); {Sale si deshaces}
+
+    if not bSalir then
+      if (ePieza.color<>8) and (ePieza.Color<>0) then {cuadrado 4*4,5*5}
+        bSalir:=CuadColor(eMarcador); {Sale si hay un CuadColor}
+  end;
+
+if not bSalir then
+  begin
+    {Comprobar lineas}
+    bHayAlguna:=false;
+    for iJ:=0 to 17 do
+      begin
+        bLleno:=true;
+        for iI:=1 to 10 do
+          if Pantalla[iI,iJ]=0 then
+            bLleno:=false;
+        abLinea[iJ]:=bLleno;
+        if bLleno then
+          bHayAlguna:=true;
+      end;
+
+    with eMarcador do
+      if bHayAlguna then
+        begin
+          eBorrar.bBorrar:=true;
+          eBorrar.iEstado:=1;
+          iI:=0;
+          for iJ:=0 to 17 do
+            if abLinea[iJ] then
+              if iI<MaxTetrisLineas then
+                begin
+                  iI:=iI+1;
+                  eBorrar.aCual[iI]:=iJ;
+                end;
+          eBorrar.yCuantas:=iI;
+        end
+      else {no hemos hecho lineas}
+        begin
+          if eCrear.bCrear then
+            begin
+              eCrear.bCrear:=false;
+              for iI:=1 to eCrear.yCuantas do
+                CrearLinea(eCrear.yX,Pantalla);
+              eCrear.yCuantas:=0;
+            end;
+
+          CrearNuevaPieza(eMarcador,G);
+          if bMiraPieza(ePieza,iPiezaX,iPiezaY,Pantalla) then
+            bGameOver:=true;
+          bNueva:=false;
+        end;
+  end;
+
+  NuevaPieza:=bNueva;
+end; (*procedure NuevaPieza*)
+
+
+
+
+
+procedure BorrarLineas(var eMarcador:tMarcador; var Pantalla:tPantalla;
+                       var G:tGrabar; bPintar:boolean);
+var
+  iI,iJ,j:integer;
+  p,m:longint;
+  b:boolean;
+
+begin
+with eMarcador do
+  begin
+
+    if bPintar then
+      case eBorrar.iEstado of
+        1,3,5,7,9:begin
+            for iI:=1 to eBorrar.yCuantas do
+              Marcar7Linea(eBorrar.aCual[iI],eMarcador,Pantalla,wScreen1)
+          end;
+        2,4,6,8,10:begin
+            for iI:=1 to eBorrar.yCuantas do
+              Marcar6Linea(eBorrar.aCual[iI],eMarcador,Pantalla,wScreen1); {negro}
+          end;
+      end;
+
+    case eBorrar.iEstado of
+      11:begin
+           for iI:=1 to eBorrar.yCuantas do
+             BorrarLinea(eBorrar.aCual[iI],Pantalla);
+
+           if bDeath then
+             wLineas:=wLineas-eBorrar.yCuantas
+           else
+             wLineas:=wLineas+eBorrar.yCuantas;
+
+           if wLineas>MaxLineas then
+             wLineas:=MaxLineas;
+
+           p:=lPuntos;
+           case eBorrar.yCuantas of {MaxTetrisLineas}
+             1:begin
+                 p:=p+60*((iSpeed+2) div 2);
+               end;
+             2:begin
+                 p:=p+150*((iSpeed+2) div 2);
+               end;
+             3:begin
+                 p:=p+300*((iSpeed+2) div 2);
+               end;
+             4:begin
+                 p:=p+600*((iSpeed+2) div 2);
+               end;
+             5:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=1200*m;
+                 p:=p+m;
+               end;
+             6:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=2500*m;
+                 p:=p+m;
+               end;
+             7:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=5000*m;
+                 p:=p+m;
+               end;
+             8:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=8000*m;
+                 p:=p+m;
+               end;
+             9:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=11000*m;
+                 p:=p+m;
+               end;
+             10:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=15000*m;
+                 p:=p+m;
+               end;
+             11:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=20000*m;
+                 p:=p+m;
+               end;
+             12:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=26000*m;
+                 p:=p+m;
+               end;
+             13:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=32000*m;
+                 p:=p+m;
+               end;
+             14:begin
+                 m:=((iSpeed+2) div 2);
+                 m:=40000*m;
+                 p:=p+m;
+               end;
+             else begin
+                 m:=((iSpeed+2) div 2);
+                 m:=(50000+10000*(eBorrar.yCuantas-15))*m;
+                 p:=p+m;
+               end;
+           end; (*case*)
+           if p>MaxPuntos then p:=MaxPuntos;
+           lPuntos:=p;
+
+           {Ver si vaciamos la pantalla}
+           b:=true;
+           for iI:=0 to 17 do
+             for iJ:=1 to 10 do
+               if Pantalla[iJ,iI]<>0 then
+                 b:=false;
+
+           if b then
+             begin
+               p:=lPuntos;
+               m:=((iSpeed+2) div 2);
+               m:=10000*m;
+               p:=p+m;
+               if p>MaxPuntos then p:=MaxPuntos;
+               lPuntos:=p;
+               eBorrar.Vacio:=true;
+             end;
+
+           if not bRepet then
+             with Estad do
+               begin
+                 if Nombre=NombreJug1 then
+                   j:=1
+                 else
+                   j:=2;
+
+                 iI:=eBorrar.yCuantas;
+                 if b then
+                   iI:=iI+5;
+                 inc(Jug[j].Mandar,iI);
+                 if iI>Jug[j].Mejor then
+                   Jug[j].Mejor:=iI;
+               end;
+
+
+           if (wLineas>=wNextLevel) and (iSpeed<19) and (not bDeath) then
+             begin
+               iSpeed:=iSpeed+1;
+               iLimite:=Velocidad(iSpeed);
+               wNextLevel:=wNextLevel+10;
+             end;
+
+           NuevaPieza(eMarcador,Pantalla,G);
+
+           if bDeath and (wLineas<=0) then
+             begin
+               if eMarcador.Nombre=NombreJug1 then
+                 eMarcador2.bGameOver:=true
+               else
+                 eMarcador1.bGameOver:=true
+             end;
+         end;
+
+      12:begin
+           if bDeath then {sumarle lineas al contrario}
+             if Nombre=NombreJug1 then
+               with eMarcador2 do
+                 begin
+                   eCrear.bCrear:=true;
+                   if eMarcador1.eBorrar.yCuantas>4 then
+                   begin
+          if random(5)=0 then {‡}
+             inc(eCrear.yCuantas,eMarcador.Tactica[4]+(eMarcador1.eBorrar.yCuantas-4)) {‡ *2};
+                     inc(eCrear.yCuantas,eMarcador.Tactica[4]+(eMarcador1.eBorrar.yCuantas-4)) {‡ *2}
+                     end
+                   else
+                     inc(eCrear.yCuantas,eMarcador.Tactica[eMarcador1.eBorrar.yCuantas]);
+                   if eMarcador1.eBorrar.Vacio then
+                     begin
+                       inc(eCrear.yCuantas,5);
+                       eMarcador1.eBorrar.Vacio:=false;
+                     end;
+                   eCrear.yX:=VerLineaAbajo(Pantalla2);
+                 end
+             else
+               with eMarcador1 do
+                 begin
+                   eCrear.bCrear:=true;
+                   if eMarcador2.eBorrar.yCuantas>4 then
+                   begin
+          if random(5)=0 then {‡}
+             inc(eCrear.yCuantas,eMarcador.Tactica[4]+(eMarcador2.eBorrar.yCuantas-4)) {‡ *2}        ;
+                     inc(eCrear.yCuantas,eMarcador.Tactica[4]+(eMarcador2.eBorrar.yCuantas-4)) {‡ *2}
+                     end
+                   else
+                     inc(eCrear.yCuantas,eMarcador.Tactica[eMarcador2.eBorrar.yCuantas]);
+                   if eMarcador2.eBorrar.Vacio then
+                     begin
+                       inc(eCrear.yCuantas,5);
+                       eMarcador2.eBorrar.Vacio:=false;
+                     end;
+                   eCrear.yX:=VerLineaAbajo(Pantalla1);
+                 end;
+
+           eBorrar.bBorrar:=false;
+           eBorrar.iEstado:=-1;
+           eBorrar.yCuantas:=0;
+         end;
+    end; (*case*)
+
+    eBorrar.iEstado:=eBorrar.iEstado+1;
+  end;
+end; (*procedure BorrarLineas*)
+
+
+
+
+
+procedure DeshazLineas(var eMarcador:tMarcador; var Pantalla:tPantalla;
+                       var G:tGrabar; bPintar:boolean);
+var
+  i,x,y,r:integer;
+  p,m:longint;
+  b:boolean;
+
+begin
+with eMarcador do
+  begin
+    if bPintar then
+      if eDesHaz.Tipo=1 then {pto multicolor}
+        begin
+          for y:=0 to 17 do
+            for x:=1 to 10 do
+              if Pantalla[x,y]=eDesHaz.Color then
+                MarcarPunto(eMarcador,x,y,eDesHaz.iEstado,wScreen1)
+        end
+      else {Cuadrados 4*4/5*5}
+        for i:=1 to eCuad.yCuantas do
+          begin
+            x:=eCuad.aCual[i].x;
+            y:=eCuad.aCual[i].y;
+            MarcarPunto(eMarcador,x,y,eDesHaz.iEstado,wScreen1);
+          end;
+
+    if eDeshaz.iEstado=9 then
+      begin
+        if eDesHaz.Tipo=1 then {pto multicolor}
+          begin
+            r:=Romper(Pantalla,eDeshaz.color);
+
+            {Ver si vaciamos la pantalla}
+            b:=true;
+            for y:=0 to 17 do
+              for x:=1 to 10 do
+                if Pantalla[x,y]<>0 then
+                  b:=false;
+
+            p:=lPuntos;
+            m:=r*((iSpeed+2) div 2);
+            if b then
+              p:=p+150*m;
+            p:=p+75*m;
+            if p>MaxPuntos then p:=MaxPuntos;
+            lPuntos:=p;
+
+            if not bRepet then
+              begin
+                if Nombre=NombreJug1 then
+                  i:=1
+                else
+                  i:=2;
+                inc(Estad.Jug[i].DesHaz,r);
+                if Estad.Jug[i].MejorDes<r then
+                  Estad.Jug[i].MejorDes:=r;
+              end;
+
+            if bDeath then {Mandar}
+              if (r>9) or b then
+                if Nombre=NombreJug1 then
+                  with eMarcador2 do
+                    begin
+                      eCrear.bCrear:=true;
+                      inc(eCrear.yCuantas,r div 10);
+                      if b then
+                        inc(eCrear.yCuantas,3);
+                      eCrear.yX:=VerLineaAbajo(Pantalla2)
+                    end
+                else
+                  with eMarcador1 do
+                    begin
+                      eCrear.bCrear:=true;
+                      inc(eCrear.yCuantas,r div 10);
+                      if b then
+                        inc(eCrear.yCuantas,3);
+                      eCrear.yX:=VerLineaAbajo(Pantalla1);
+                    end;
+          end
+
+        else {Cuadrados 4*4}
+          begin
+            RomperCuad(Pantalla,eCuad);
+
+            {Ver si vaciamos la pantalla}
+            b:=true;
+            for y:=0 to 17 do
+              for x:=1 to 10 do
+                if Pantalla[x,y]<>0 then
+                  b:=false;
+
+            p:=lPuntos;
+            m:=(eCuad.Tipo-3)*((iSpeed+2) div 2);
+            if b then
+              p:=p+8000*m;
+            p:=p+4000*m;
+            if p>MaxPuntos then p:=MaxPuntos;
+            lPuntos:=p;
+
+            if bDeath then {Mandar}
+              if Nombre=NombreJug1 then
+                with eMarcador2 do
+                  begin
+                    eCrear.bCrear:=true;
+                    if eMarcador1.eCuad.Tipo=4 then
+                      begin
+                        inc(eCrear.yCuantas,4);
+                        {si es perfecto los ptos (7) son de distinto color}
+                        {si no 4-5 de mismo colol}
+                        PonPuntos(Pantalla2,eMarcador1.eCuad.Color,b);
+                      end;
+                    if eMarcador1.eCuad.Tipo=5 then
+                      begin
+                        inc(eCrear.yCuantas,5);
+                        PonPuntos(Pantalla2,eMarcador1.eCuad.Color,b);
+                      end;
+                    if eMarcador1.eCuad.Tipo=8 then
+                      begin
+                        inc(eCrear.yCuantas,8);
+                        PonPuntos(Pantalla2,eMarcador1.eCuad.Color,b);
+                      end;
+                    if b then
+                      inc(eCrear.yCuantas,5);
+                    eCrear.yX:=VerLineaAbajo(Pantalla2)
+                  end
+              else
+                with eMarcador1 do
+                  begin
+                    eCrear.bCrear:=true;
+                    if eMarcador2.eCuad.Tipo=4 then
+                      begin
+                        inc(eCrear.yCuantas,4);
+                        PonPuntos(Pantalla1,eMarcador2.eCuad.Color,b);
+                      end;
+                    if eMarcador2.eCuad.Tipo=5 then
+                      begin
+                        inc(eCrear.yCuantas,5);
+                        PonPuntos(Pantalla1,eMarcador2.eCuad.Color,b);
+                      end;
+                    if eMarcador2.eCuad.Tipo=8 then
+                      begin
+                        inc(eCrear.yCuantas,8);
+                        PonPuntos(Pantalla1,eMarcador2.eCuad.Color,b);
+                      end;
+                    if b then
+                      inc(eCrear.yCuantas,5);
+                    eCrear.yX:=VerLineaAbajo(Pantalla1);
+                  end;
+          end;
+
+        NuevaPieza(eMarcador,Pantalla,G);
+
+        eDeshaz.bDeshaz:=false;
+        eDeshaz.iEstado:=-1;
+      end;
+
+    eDeshaz.iEstado:=eDeshaz.iEstado+1;
+  end;
+end; (*procedure DeshazLineas*)
+
+
+
+
+
+procedure GameOver(var eMarcador:tMarcador);
+var
+  iI,i2,iJ:integer;
+  cCar:char;
+
+begin
+
+bRepeticion:=false;
+
+if bDeath then
+  begin
+    {circulos parriba}
+    if not bRepet then
+      begin
+        ClsWhere(0,wScreen1);
+        with eMarcador1 do
+          begin
+            DibujaFondo(iX,iY,10,wScreen1);
+            DibujaPantalla(eMarcador1,Pantalla1,wScreen1);
+            {if eBorrar.bBorrar then
+              BorrarLineas(eMarcador1,Pantalla1,Grabar^,true);
+            if eDeshaz.bDeshaz then
+              DeshazLineas(eMarcador1,Pantalla1,Grabar^,true)
+            else
+              DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);}
+          end;
+        with eMarcador2 do
+          begin
+            DibujaFondo(iX,iY,10,wScreen1);
+            DibujaPantalla(eMarcador2,Pantalla2,wScreen1);
+            {if eBorrar.bBorrar then
+              BorrarLineas(eMarcador2,Pantalla2,Grabar^,true);
+            if eDeshaz.bDeshaz then
+              DeshazLineas(eMarcador2,Pantalla2,Grabar^,true)
+            else
+              DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);}
+          end;
+        PonerDatos2(eMarcador1,eMarcador2,wScreen1);
+        DibujaNext2(eMarcador1,eMarcador2,wScreen1,Grabar^);
+
+        WaitRetrace;
+        Flip(wScreen1,SegA000);
+
+        Esperar(1500);
+        iJ:=17;
+        repeat
+          ClsWhere(0,wScreen1);
+
+          with eMarcador1 do
+            begin
+              DibujaFondo(iX,iY,10,wScreen1);
+              DibujaPantalla(eMarcador1,Pantalla1,wScreen1);
+            end;
+          with eMarcador2 do
+            begin
+              DibujaFondo(iX,iY,10,wScreen1);
+              DibujaPantalla(eMarcador2,Pantalla2,wScreen1);
+            end;
+
+          with eMarcador1 do
+            if bGameOver then
+              for iI:=1 to 10 do {x}
+                for i2:=17 downto iJ do {y}
+                  DibujaCuadro(iX+iI*9,iY+i2*9,20,1,wScreen1);
+          with eMarcador2 do
+            if bGameOver then
+              for iI:=1 to 10 do
+                for i2:=17 downto iJ do
+                  DibujaCuadro(iX+iI*9,iY+i2*9,20,2,wScreen1);
+
+          PonerDatos2(eMarcador1,eMarcador2,wScreen1);
+          DibujaNext2(eMarcador1,eMarcador2,wScreen1,Grabar^);
+          WaitRetrace;
+          Flip(wScreen1,SegA000);
+          iJ:=iJ-1;
+          Esperar(60);
+        until iJ=-1;
+
+        repeat
+        until not TeclaPulsada;
+
+        iJ:=0;
+        repeat
+          Esperar(50);
+          iJ:=iJ+1;
+        until TeclaPulsada or (iJ>40); {espera unos 2 seg}
+        if KeyDown[yRepet] then
+          bRepeticion:=true;
+        if iJ<=40 then
+          Esperar(100);
+
+        if eMarcador1.bGameover and eMarcador2.bGameover then
+          {empate}
+        else
+          if eMarcador.Nombre=NombreJug1 then
+            yWin2:=yWin2+1
+          else
+            yWin1:=yWin1+1;
+      end;
+
+    bSalir:=true;
+  end
+
+else {normal}
+  if ((eMarcador1.bGameOver) and (eMarcador2.bGameOver)) or (iPlayers=1) then
+    begin
+      if not bRepet then
+        begin
+          ClsWhere(0,wScreen1);
+          if iPlayers=2 then
+            begin
+              with eMarcador1 do
+                begin
+                  DibujaFondo(iX,iY,10,wScreen1);
+                  DibujaPantalla(eMarcador1,Pantalla1,wScreen1);
+                end;
+              with eMarcador2 do
+                begin
+                  DibujaFondo(iX,iY,10,wScreen1);
+                  DibujaPantalla(eMarcador2,Pantalla2,wScreen1);
+                end;
+              PonerDatos2(eMarcador1,eMarcador2,wScreen1);
+              DibujaNext2(eMarcador1,eMarcador2,wScreen1,Grabar^);
+            end
+          else
+            with eMarcador1 do
+              begin
+                DibujaFondo(iX,iY,10,wScreen1);
+                DibujaPantalla(eMarcador1,Pantalla1,wScreen1);
+                PonerDatos(eMarcador1,wScreen1);
+                DibujaNext(eMarcador1,wScreen1,Grabar^);
+              end;
+          WaitRetrace;
+          Flip(wScreen1,SegA000);
+
+          Esperar(300);
+          repeat
+          until not TeclaPulsada;
+
+          iJ:=0;
+          repeat
+            Esperar(50);
+            iJ:=iJ+1;
+          until TeclaPulsada or (iJ>40); {espera unos 2 seg}
+          if KeyDown[yRepet] then
+            bRepeticion:=true;
+          if iJ<=40 then
+            Esperar(100);
+
+          if iPlayers=2 then
+            begin
+              PonerRecord(eMarcador1.lPuntos,eMarcador1.wLineas,eMarcador1.nombre);
+              PonerRecord(eMarcador2.lPuntos,eMarcador2.wLineas,eMarcador2.nombre);
+            end
+          else
+            PonerRecord(eMarcador1.lPuntos,eMarcador1.wLineas,'');
+        end;
+
+      bSalir:=true;
+    end;
+
+end; (*procedure GameOver*)
+
+
+
+
+
+procedure Depurar;
+begin
+  if KeyDown[ScanOf('­')] then
+    begin
+      bDepurar:=not bDepurar;
+      repeat
+      until not KeyDown[ScanOf('­')];
+    end;
+end;
+
+
+
+
+
+procedure CargarImagenes;
+var
+  sFicha:string;
+  ImagenAux:tImagen;
+
+begin
+sFicha:='fichas0';
+LoadImagenSPR(sFicha,'',0,Pieza1,iError);
+LoadImagenSPR(sFicha,'',1,Pieza2,iError);
+LoadImagenSPR(sFicha,'',2,Pieza3,iError);
+LoadImagenSPR(sFicha,'',3,Pieza4,iError);
+LoadImagenSPR(sFicha,'',4,Pieza5,iError);
+LoadImagenSPR(sFicha,'',5,Pieza6,iError);
+LoadImagenSPR(sFicha,'',6,Pieza7,iError);
+sFicha:='fichas3';
+LoadImagenSPR(sFicha,'',0,Pieza11,iError);
+LoadImagenSPR(sFicha,'',1,Pieza12,iError);
+LoadImagenSPR(sFicha,'',2,Pieza13,iError);
+LoadImagenSPR(sFicha,'',3,Pieza14,iError);
+LoadImagenSPR(sFicha,'',4,Pieza15,iError);
+LoadImagenSPR(sFicha,'',5,Pieza16,iError);
+LoadImagenSPR(sFicha,'',6,Pieza17,iError);
+sFicha:='fichas5';
+LoadImagenSPR(sFicha,'',13,Pieza8,iError); {crecen}
+LoadImagenSPR(sFicha,'',14,Pieza10,iError); {fondo}
+sFicha:='fichas4';
+LoadImagenSPR(sFicha,'',11,Pieza20,iError); {game over, player1-rojo}
+LoadImagenSPR(sFicha,'',8,Pieza21,iError);  {game over, player2-azul}
+sFicha:='fichas7';
+LoadImagenSPR(sFicha,'',12,Pieza22,iError); {larga}
+sFicha:='fichas8';
+LoadImagenSPR(sFicha,'',9,Pieza23,iError); {cuadrado}
+sFicha:='fichas5';
+LoadImagenSPR(sFicha,'',7,Pieza24,iError); {superlarga}
+
+LoadImagenSPR('fichas0','',0,ImagenAux,iError);
+end;
+
+
+
+
+
+procedure CargarListaPiezas(var Lista:tListaPiezas; var G:tGrabar);
+var
+  pAct,pAnt:tListaPiezas;
+  NF:word;
+
+begin
+with G do
+  begin
+    NF:=0;
+    New(Lista);
+    Lista^.Pieza:=Fichas[NF];
+    pAnt:=Lista;
+    NF:=NF+1;
+
+    repeat
+      New(pAct);
+      pAct^.Pieza:=Fichas[NF];
+      pAnt^.Siguiente:=pAct;
+      pAnt:=pAct;
+      NF:=NF+1;
+    until NF>=NumF;
+    pAct^.Siguiente:=nil;
+  end;
+end;
+
+
+
+
+
+procedure Grabacion(var G:tGrabar; lTpo:longint; yTcl:byte);
+begin
+  with G do
+    if Num<MaxEventos then
+      begin
+        Eventos[Num].Tpo:=lTpo;
+        Eventos[Num].Tecla:=yTcl;
+        Num:=Num+1;
+        if Num>MaxEventos then
+          Num:=MaxEventos;
+      end
+  else
+    if yTcl=13 then
+      begin
+        Eventos[MaxEventos-1].Tpo:=lTpo;
+        Eventos[MaxEventos-1].Tecla:=yTcl;
+        Num:=MaxEventos;
+      end;
+end;
+
+
+
+
+
+function VerEvento(lTpo:longint; Tecla:byte; NumEv:word; var G:tGrabar):boolean;
+var
+  w:word;
+  b:boolean;
+
+begin
+  w:=NumEv;
+  b:=false;
+  with G do
+    repeat
+      if (Eventos[w].Tpo=lTpo) and (Eventos[w].Tecla=Tecla) then
+        b:=true;
+      w:=w+1;
+    until (w>=Num) or (Eventos[w].Tpo>lTiempo);
+  VerEvento:=b;
+end;
+
+
+
+
+
+procedure Simulador(var NE:word; var lTpo:longint; var G:tGrabar;
+                    var iR:integer; bPant:boolean; veloc:byte);
+var
+  s:string;
+
+begin
+{---------------------- SIMULAR REPETICION ----------------------------------}
+
+  if not eMarcador1.bPause {and not eMarcador1.bGameOver} then
+    eMarcador1.iTime:=eMarcador1.iTime+1;
+  if G.Tipo>1 then
+    if not eMarcador2.bPause {and not eMarcador2.bGameOver} then
+      eMarcador2.iTime:=eMarcador2.iTime+1;
+
+  if G.Tipo>1 then
+    LimpiarPantallas
+  else
+    LimpiarPantalla;
+
+
+  if bPant then
+    begin
+      ClsWhere(0,wScreen1);
+
+      with eMarcador1 do
+        begin
+          DibujaFondo(iX,iY,10,wScreen1);
+          DibujaPantalla(eMarcador1,Pantalla1,wScreen1);
+          if eBorrar.bBorrar then
+            BorrarLineas(eMarcador1,Pantalla1,G,bPant);
+          if eDeshaz.bDeshaz then
+            DeshazLineas(eMarcador1,Pantalla1,G,bPant)
+          else
+            DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+        end;
+
+      if G.Tipo>1 then
+        with eMarcador2 do
+          begin
+            DibujaFondo(iX,iY,10,wScreen1);
+            DibujaPantalla(eMarcador2,Pantalla2,wScreen1);
+            if eBorrar.bBorrar then
+              BorrarLineas(eMarcador2,Pantalla2,G,bPant);
+            if eDeshaz.bDeshaz then
+              DeshazLineas(eMarcador2,Pantalla2,G,bPant)
+            else
+              DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+          end;
+
+      if G.Tipo>1 then
+        begin
+          DibujaNext2(eMarcador1,eMarcador2,wScreen1,G);
+          PonerDatos2(eMarcador1,eMarcador2,wScreen1);
+        end
+      else
+        begin
+          DibujaNext(eMarcador1,wScreen1,G);
+          PonerDatos(eMarcador1,wScreen1);
+        end;
+
+
+      if iR>=0 then
+        begin
+          WriteWhere(310,1,15,-1,'R',wScreen1);
+          iR:=iR+1;
+          if veloc=4 then
+            iR:=iR+2;
+          if veloc=5 then
+            iR:=iR+5;
+          if veloc=6 then
+            iR:=iR+12;
+          if iR>10 then
+            iR:=-1;
+        end
+      else
+        begin
+          iR:=iR-1;
+          if iR<-10 then
+            iR:=0;
+        end;
+
+      if bDepurar then
+        begin
+          str(NE,s);
+          WriteWhere(180,1,15,-1,s,wScreen1);
+          str(lTpo,s);
+          WriteWhere(180,10,15,-1,s,wScreen1);
+          {str(veloc,s);
+          WriteWhere(310,190,15,-1,s,wScreen1);}
+        end;
+
+      case veloc of
+        0: s:='V/10';
+        1: s:='V/5';
+        2: s:='V/2';
+        3: s:='V*1';
+        4: s:='V*2';
+        5: s:='V*5';
+        6: s:='V*10';
+      end;
+      WriteWhere(285,190,15,-1,s,wScreen1);
+
+      WaitRetrace;
+      Flip(wScreen1,SegA000);
+    end
+  else
+    begin
+      if eMarcador1.eBorrar.bBorrar then
+        BorrarLineas(eMarcador1,Pantalla1,G,bPant);
+      if eMarcador1.eDeshaz.bDeshaz then
+        DeshazLineas(eMarcador1,Pantalla1,G,bPant);
+      if G.Tipo>1 then
+        begin
+          if eMarcador2.eBorrar.bBorrar then
+            BorrarLineas(eMarcador2,Pantalla2,G,bPant);
+          if eMarcador2.eDeshaz.bDeshaz then
+            DeshazLineas(eMarcador2,Pantalla2,G,bPant);
+        end;
+    end;
+
+  if KeyDown[AltScan] and KeyDown[ScanOf('X')] then
+    begin
+      OldKeyInt;
+      CloseGraph;
+      halt;
+    end;
+
+
+  if eMarcador1.bGameOver and not bSalir then
+    GameOver(eMarcador1);
+  if G.Tipo>1 then
+    if eMarcador2.bGameOver and not bSalir then
+      GameOver(eMarcador2);
+
+
+  if VerEvento(lTpo,6,NE,G) then
+    begin
+      with eMarcador1 do
+        if not bPause then
+          bPause:=true
+        else
+          bPause:=false;
+      NE:=NE+1;
+    end;
+
+  if G.Tipo>1 then
+    if VerEvento(lTpo,12,NE,G) then
+      begin
+        with eMarcador2 do
+          if not bPause then
+            bPause:=true
+          else
+            bPause:=false;
+        NE:=NE+1;
+      end;
+
+
+  with eMarcador1 do
+    if (not eBorrar.bBorrar) and (not eDeshaz.bDeshaz) and (not bPause) {and not bGameOver} then
+      begin {solo movemos si no hacemos linea}
+        if bPausaPpio and not VerEvento(lTpo,3,NE,G) then
+          bPausaPpio:=false;
+
+        if VerEvento(lTpo,1,NE,G) then
+          begin
+            if bIzquierda(ePieza,iPiezaX,iPiezaY,Pantalla1)
+            then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+                iPiezaX:=iPiezaX-1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1); {cambio, ver ppio programa}
+              end;
+          end;
+
+        if VerEvento(lTpo,2,NE,G) then
+          begin
+            if bDerecha(ePieza,iPiezaX,iPiezaY,Pantalla1)
+            then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+                iPiezaX:=iPiezaX+1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+              end;
+          end;
+
+        if VerEvento(lTpo,3,NE,G) and (not bPausaPpio) then
+          begin
+            iTime:=0;
+            if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla1) then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+                iPiezaY:=iPiezaY+1;
+                iDrops:=iDrops+1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1); {cambio, ver ppio programa}
+              end
+            else
+              begin
+                lPuntos:=lPuntos+iDrops;
+                if lPuntos>MaxPuntos then lPuntos:=MaxPuntos;
+                iDrops:=0;
+                NuevaPieza(eMarcador1,Pantalla1,G);
+              end;
+          end;
+
+        if not VerEvento(lTpo,3,NE,G) then
+          iDrops:=0;
+
+        if VerEvento(lTpo,5,NE,G) then
+          RotateDer(eMarcador1,Pantalla1);
+
+        if VerEvento(lTpo,4,NE,G) then
+          RotateIzq(eMarcador1,Pantalla1);
+
+
+        if iTime>=iLimite then
+          begin
+            iTime:=0;
+            if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla1) then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+                iPiezaY:=iPiezaY+1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+              end
+            else
+              NuevaPieza(eMarcador1,Pantalla1,G)
+          end;
+      end;
+
+  { ----- +++++ ----- }
+
+  if G.Tipo>1 then
+    with eMarcador2 do
+      if (not eBorrar.bBorrar) and (not eDeshaz.bDeshaz) and (not bPause) {and not bGameOver} then
+        begin {solo movemos si no hacemos linea}
+          if bPausaPpio and not VerEvento(lTpo,9,NE,G) then
+            bPausaPpio:=false;
+
+          if VerEvento(lTpo,7,NE,G) then
+            if bIzquierda(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+                iPiezaX:=iPiezaX-1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2); {cambio, ver ppio programa}
+              end;
+
+          if VerEvento(lTpo,8,NE,G) then
+            if bDerecha(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+                iPiezaX:=iPiezaX+1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+              end;
+
+          if VerEvento(lTpo,9,NE,G) and (not bPausaPpio) then
+            begin
+              iTime:=0;
+              if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+                begin
+                  BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+                  iPiezaY:=iPiezaY+1;
+                  iDrops:=iDrops+1;
+                  DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2); {cambio, ver ppio programa}
+                end
+              else
+                begin
+                  lPuntos:=lPuntos+iDrops;
+                  if lPuntos>MaxPuntos then lPuntos:=MaxPuntos;
+                  iDrops:=0;
+                  NuevaPieza(eMarcador2,Pantalla2,G)
+                end;
+            end;
+
+          if not VerEvento(lTpo,9,NE,G) then
+            iDrops:=0;
+
+          if VerEvento(lTpo,11,NE,G) then
+            RotateDer(eMarcador2,Pantalla2);
+
+          if VerEvento(lTpo,10,NE,G) then
+            RotateIzq(eMarcador2,Pantalla2);
+
+
+          if iTime>=iLimite then
+            begin
+              iTime:=0;
+              if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+                begin
+                  BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+                  iPiezaY:=iPiezaY+1;
+                  DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2); {cambio, ver ppio programa}
+                end
+              else
+                NuevaPieza(eMarcador2,Pantalla2,G)
+            end;
+        end;
+
+
+  lTpo:=lTpo+1;
+  if lTpo>MaxTiempo then
+    lTpo:=MaxTiempo;
+
+  if NE<G.Num then
+    if G.Eventos[NE].Tpo < lTpo then
+      NE:=NE+1;
+  if NE<G.Num then
+    if G.Eventos[NE].Tpo < lTpo then
+      NE:=NE+1;
+
+end;
+
+
+
+
+
+procedure IniciaSimulador(var G:tGrabar);
+begin
+with eMarcador1 do
+  begin
+    if G.Tipo>1 then
+      begin
+        iX:=211;
+        iY:=15;
+      end
+    else
+      begin
+        iX:=60;
+        iY:=15
+      end;
+
+    Tactica:=G.Opc1.Tactica;
+    iSpeed:=G.Opc1.iSpeed;
+    Altura:=G.Opc1.Altura;
+    wLineas:=G.Opc1.wLineas;
+
+    eBorrar.bBorrar:=false;
+    eBorrar.iEstado:=0;
+    eBorrar.yCuantas:=0;
+    eBorrar.Vacio:=false;
+    eCrear.bCrear:=false;
+    eCrear.yCuantas:=0;
+    eCrear.yX:=10;
+    eDeshaz.bDeshaz:=false;
+    eDeshaz.iEstado:=0;
+
+    iDrops:=0;
+    lPuntos:=0;
+    wNextLevel:=(iSpeed+1)*10;
+    iLimite:=Velocidad(iSpeed);
+    iTime:=0;
+
+    bPausaPpio:=false;
+    bPause:=false;
+    bGameOver:=false;
+
+    IniciaPantalla(Pantalla1);
+    pPosLista:=ListaPiezas;
+    NuevaPieza(eMarcador1,Pantalla1,G);
+    Pantalla1:=G.Altura1;
+  end;
+
+if G.Tipo>1 then {2 players normal o death}
+with eMarcador2 do
+  begin
+    iX:=0;
+    iY:=15;
+
+    Tactica:=G.Opc2.Tactica;
+    iSpeed:=G.Opc2.iSpeed;
+    Altura:=G.Opc2.Altura;
+    wLineas:=G.Opc2.wLineas;
+
+    eBorrar.bBorrar:=false;
+    eBorrar.iEstado:=0;
+    eBorrar.yCuantas:=0;
+    eBorrar.Vacio:=false;
+    eCrear.bCrear:=false;
+    eCrear.yCuantas:=0;
+    eCrear.yX:=10;
+    eDeshaz.bDeshaz:=false;
+    eDeshaz.iEstado:=0;
+
+    iDrops:=0;
+    lPuntos:=0;
+    wNextLevel:=(iSpeed+1)*10;
+    iLimite:=Velocidad(iSpeed);
+    iTime:=0;
+
+    bPausaPpio:=false;
+    bPause:=false;
+    bGameOver:=false;
+
+    IniciaPantalla(Pantalla2);
+    pPosLista:=ListaPiezas;
+    NuevaPieza(eMarcador2,Pantalla2,G);
+    Pantalla2:=G.Altura2;
+  end;
+
+  bSalir:=false;
+end;
+
+
+
+
+
+procedure SimulaMas(var NE:word; Tiempo1,Tiempo2:longint; var G:tGrabar);
+var
+  R:integer;
+  wNE:word;
+  lTpo:longint;
+
+begin
+
+wNE:=NE;
+lTpo:=Tiempo1;
+
+while G.Eventos[wNE].Tpo<lTpo do
+  if wNE<G.Num then
+    wNE:=wNE+1;
+
+repeat
+
+  Simulador(wNE,lTpo,G,R,false,0);
+
+until (lTpo>=Tiempo2);
+
+NE:=wNE;
+end;
+
+
+
+
+procedure SimulaMenos(var NE:word; Tiempo:longint; var G:tGrabar);
+var
+  R:integer;
+  wNE:word;
+  lTpo:longint;
+
+begin
+
+IniciaSimulador(G);
+
+wNE:=0;
+lTpo:=0;
+
+repeat
+
+  Simulador(wNE,lTpo,G,R,false,0);
+
+until (lTpo>=Tiempo);
+
+NE:=wNE;
+end;
+
+
+
+
+procedure Repeticion(var G:tGrabar; bNombre:boolean);
+var
+  NE:word; {N§ evento}
+  f:file of tGrabar;
+  s:string;
+  pAct:tListaPiezas;
+  iR:integer;
+  Sal:boolean;
+  Pause:boolean;
+  Veloc:byte; {0=muy lenta, 1=lenta, 2=normal, 3=rapida, 4=muy rapida}
+  BarraTpo:integer; {sin usar, barra desplazamiento del Tpo}
+  SimTpo:longint;
+
+begin
+
+bRepet:=true;
+Pause:=false;
+
+bDeath:=false;
+if G.tipo=1 then
+  iPlayers:=1
+else
+  begin
+    iPlayers:=2;
+    if G.tipo=3 then
+      bDeath:=true;
+  end;
+
+CargarListaPiezas(ListaPiezas,G);
+IniciaSimulador(G);
+
+
+NE:=0;
+lTiempo:=0;
+Veloc:=3; {0=muy lenta, 1=lenta, 2=moderada, 3=normal, 4=rapida,
+           5=muy rapida, 6=rapidisima}
+iR:=0;
+
+repeat
+
+  if not Pause and (lTiempo<=G.Eventos[G.Num-1].Tpo) then
+    begin
+      case Veloc of
+        0: Esperar(400);
+        1: Esperar(125);
+        2: Esperar(40);
+        4: begin
+             SimTpo:=lTiempo;
+             lTiempo:=lTiempo+2;
+             SimulaMas(NE,SimTpo,lTiempo,G);
+           end;
+        5: begin
+             SimTpo:=lTiempo;
+             lTiempo:=lTiempo+5;
+             SimulaMas(NE,SimTpo,lTiempo,G);
+           end;
+        6: begin
+             SimTpo:=lTiempo;
+             lTiempo:=lTiempo+12;
+             SimulaMas(NE,SimTpo,lTiempo,G);
+           end;
+      end;
+
+      Simulador(NE,lTiempo,G,iR,true,Veloc);
+    end;
+
+
+  if KeyDown[InsScan] then Pause:=false;
+  if KeyDown[DelScan] then Pause:=true;
+
+  if KeyDown[IniScan] then
+    begin
+      lTiempo:=0;
+      SimulaMenos(NE,lTiempo,G);
+      repeat
+      until not TeclaPulsada;
+    end;
+  if KeyDown[FinScan] then
+    begin
+      SimTpo:=lTiempo;
+      lTiempo:=G.Eventos[G.Num-1].Tpo-250;
+      if SimTpo<lTiempo then
+        SimulaMas(NE,SimTpo,lTiempo,G)
+      else
+        SimulaMenos(NE,lTiempo,G);
+      repeat
+      until not TeclaPulsada;
+    end;
+
+  if KeyDown[PgUpScan] then
+    begin
+      lTiempo:=lTiempo-1000;
+      if lTiempo<0 then
+        lTiempo:=0;
+      SimulaMenos(NE,lTiempo,G);
+      repeat
+      until not TeclaPulsada;
+    end;
+  if KeyDown[PgDnScan] then
+    begin
+      SimTpo:=lTiempo;
+      lTiempo:=lTiempo+1000;
+      if lTiempo>G.Eventos[G.Num-1].Tpo then
+        lTiempo:=G.Eventos[G.Num-1].Tpo-100;
+      if SimTpo<lTiempo then
+        SimulaMas(NE,SimTpo,lTiempo,G)
+      else
+        SimulaMenos(NE,lTiempo,G);
+      repeat
+      until not TeclaPulsada;
+    end;
+
+  if KeyDown[MenosScan] then
+    begin
+      if Veloc>0 then
+        Veloc:=Veloc-1;
+      repeat
+      until not TeclaPulsada;
+    end;
+  if KeyDown[MasScan] then
+    begin
+      Veloc:=Veloc+1;
+      if Veloc>6 then
+        Veloc:=6;
+      repeat
+      until not TeclaPulsada;
+    end;
+
+  if KeyDown[AltScan] and KeyDown[ScanOf('X')] then
+    begin
+      OldKeyInt;
+      CloseGraph;
+      halt;
+    end;
+
+  Depurar;
+
+until KeyDown[EscScan]; {bSalir or (NE>=G.Num) or (G.Eventos[NE].Tecla=13);}
+
+
+BorrarListaPiezas(ListaPiezas);
+
+
+if bNombre then
+  begin
+    OldKeyInt;
+
+    iR:=0;
+    Sal:=false;
+    repeat
+
+      s:=PedirNombre('Repeticion');
+
+      if s<>'' then
+        begin
+          {$I-}
+          assign(f,s+'.rep');
+          reset(f);
+          {$I+}
+          if IOResult<>0 then
+            begin {no existe}
+              {$I-}
+              rewrite(f);
+              {$I+}
+              if IOResult=0 then
+                begin
+                  {$I-}
+                  write(f,G);
+                  {$I+}
+                  if IOResult=0 then
+                    Sal:=true;
+                  close(f);
+                end;
+            end
+          else
+            close(f);
+        end
+      else
+        Sal:=true;
+
+      inc(iR);
+    until Sal or (iR>=3);
+
+    NewKeyInt;
+  end;
+
+
+bRepet:=false;
+bRepeticion:=false;
+
+end;
+
+
+
+
+
+procedure ElegirRepeticion;
+const
+  MaxRep=2000;
+type
+  tRep=array[0..MaxRep] of string[8];
+var
+  Dir:SearchRec;
+  Rep:tRep;
+  NumRep:integer;
+  i,j:word;
+  f:file of tGrabar;
+
+
+  procedure DibujaRep(pos,ini:word; var Rep:tRep);
+  var
+    i1,y:integer;
+  begin
+    ClsWhere(yFondo,wScreen1);
+    y:=1;
+    i1:=0;
+    while (i1<=19) and (i1<=NumRep) do
+      begin
+        if ini+i1=pos then
+          WriteColorWhere(105,y,-1,Rep[ini+i1],Color83,wScreen1)
+        else
+          WriteWhere(105,y,15,-1,Rep[ini+i1],wScreen1);
+        y:=y+10;
+        inc(i1);
+      end;
+    WaitRetrace;
+    flip(wScreen1,SegA000);
+  end;
+
+
+  procedure QuickSort(var A:tRep; Lo,Hi:Integer);
+
+    procedure Sort(l,r:Integer);
+    var
+      i,j:integer;
+      x,y:string;
+
+    begin
+      i:=l;
+      j:=r;
+      x:=a[(l+r) div 2];
+      repeat
+        while a[i]<x do
+          i:=i+1;
+        while x<a[j] do
+          j:=j-1;
+        if i<=j then
+          begin
+            y:=a[i];
+            a[i]:=a[j];
+            a[j]:=y;
+            i:=i+1;
+            j:=j-1;
+          end;
+      until i>j;
+      if l<j then
+        Sort(l,j);
+      if i<r then
+        Sort(i,r);
+    end;
+
+  begin {QuickSort};
+    Sort(Lo,Hi);
+  end;
+
+
+begin
+
+FindFirst('*.REP',Archive,Dir);
+i:=0;
+while DosError=0 do
+  begin
+    Rep[i]:=QuitaExtension(Dir.Name);
+    FindNext(Dir);
+    inc(i);
+  end;
+NumRep:=i-1;
+if NumRep<0 then
+  NumRep:=0;
+
+QuickSort(Rep,0,NumRep); {ordena por nombre}
+
+
+i:=0; {posic en array del seleccionado}
+j:=0; {posic en array del primero de la pantalla}
+
+DibujaRep(i,j,Rep);
+
+repeat
+  if KeyDown[UpScan] then
+    if i>0 then
+      begin
+        dec(i);
+        if (j>0) and (i<NumRep-10) then
+          dec(j);
+        DibujaRep(i,j,Rep);
+        esperar(80);
+      end;
+
+  if KeyDown[DownScan] then
+    if i<NumRep then
+      begin
+        inc(i);
+        if (j<NumRep-19) and (i>10) then
+          inc(j);
+        DibujaRep(i,j,Rep);
+        esperar(80);
+      end;
+
+  if KeyDown[EntScan] then
+    begin
+      {$I-}
+      assign(f,Rep[i]+'.rep');
+      reset(f);
+      {$I+}
+      if IOResult=0 then
+        begin
+          {$I-}
+          read(f,Grabar^);
+          {$I+}
+          if IOResult=0 then
+            begin
+              Repeticion(Grabar^,false);
+              repeat
+              until not KeyDown[EscScan];
+              DibujaRep(i,j,Rep);
+            end;
+          close(f);
+        end;
+    end;
+
+until KeyDown[EscScan];
+
+end;
+
+
+
+
+
+procedure CargarOpciones(Tipo:byte);
+{Tipo 1->1pla, 2->2pla, 3->death, 4->Copa, 5->Liga}
+var
+  f:file;
+
+begin
+Grabar^.Tipo:=Tipo;
+Grabar^.NumF:=0;
+CrearListaPiezas(ListaPiezas,Grabar^);
+
+assign(f,'Opciones.dat');
+reset(f,1);
+
+with eMarcador1 do {1pla}
+  begin
+    if Tipo=1 then
+      begin
+        iX:=60;
+        iY:=15;
+      end
+    else
+      begin
+        iX:=211;
+        iY:=15;
+      end;
+
+    blockread(f,Tactica,sizeof(tTactica));
+    blockread(f,iSpeed,sizeof(iSpeed));
+    blockread(f,Altura,sizeof(Altura));
+    blockread(f,wLineas,sizeof(wLineas));
+
+    eBorrar.bBorrar:=false;
+    eBorrar.iEstado:=0;
+    eBorrar.yCuantas:=0;
+    eBorrar.Vacio:=false;
+    eCrear.bCrear:=false;
+    eCrear.yCuantas:=0;
+    eCrear.yX:=10;
+    eDeshaz.bDeshaz:=false;
+    eDeshaz.iEstado:=0;
+
+    iDrops:=0;
+    lPuntos:=0;
+    if Tipo=3 then
+      wLineas:=MaxLineasDeath;
+    wNextLevel:=(iSpeed+1)*10;
+    iLimite:=Velocidad(iSpeed);
+    iTime:=0;
+
+    bPausaPpio:=false;
+    bPause:=false;
+    bGameOver:=false;
+
+    IniciaPantalla(Pantalla1);
+    pPosLista:=ListaPiezas;
+    NuevaPieza(eMarcador1,Pantalla1,Grabar^);
+    PonerAltura(eMarcador1,Pantalla1);
+
+    Grabar^.Opc1.wLineas:=wLineas;
+    Grabar^.Opc1.iSpeed:=iSpeed;
+    Grabar^.Opc1.Altura:=Altura;
+    Grabar^.Opc1.Tactica:=Tactica;
+    Grabar^.Altura1:=Pantalla1;
+  end;
+
+
+if Tipo>1 then
+  with eMarcador2 do
+    begin
+      iX:=0;
+      iY:=15;
+
+      blockread(f,Tactica,sizeof(tTactica));
+      blockread(f,iSpeed,sizeof(iSpeed));
+      blockread(f,Altura,sizeof(Altura));
+      blockread(f,wLineas,sizeof(wLineas));
+
+      eBorrar.bBorrar:=false;
+      eBorrar.iEstado:=0;
+      eBorrar.yCuantas:=0;
+      eBorrar.Vacio:=false;
+      eCrear.bCrear:=false;
+      eCrear.yCuantas:=0;
+      eCrear.yX:=10;
+      eDeshaz.bDeshaz:=false;
+      eDeshaz.iEstado:=0;
+
+      iDrops:=0;
+      lPuntos:=0;
+      if Tipo=3 then
+        wLineas:=MaxLineasDeath;
+      wNextLevel:=(iSpeed+1)*10;
+      iLimite:=Velocidad(iSpeed);
+      iTime:=0;
+
+      bPausaPpio:=false;
+      bPause:=false;
+      bGameOver:=false;
+
+      IniciaPantalla(Pantalla2);
+      pPosLista:=ListaPiezas;
+      NuevaPieza(eMarcador2,Pantalla2,Grabar^);
+      PonerAltura(eMarcador2,Pantalla2);
+
+      Grabar^.Opc2.wLineas:=wLineas;
+      Grabar^.Opc2.iSpeed:=iSpeed;
+      Grabar^.Opc2.Altura:=Altura;
+      Grabar^.Opc2.Tactica:=Tactica;
+      Grabar^.Altura2:=Pantalla2;
+    end;
+
+close(f);
+bSalir:=false;
+
+Grabar^.Num:=0;
+lTiempo:=0;
+end;
+
+
+
+
+
+procedure Jugar(Tipo:byte; Var CeroCero:boolean); {bCeroCero para death}
+{Tipo 1->1pla, 2->2pla, 3->death, 4->Copa, 5->Liga}
+var
+  bSinFicha:boolean;
+  p:longint;
+
+begin
+
+CargarOpciones(Tipo);
+
+repeat
+
+  bSinFicha:=false; {cuando no tienes ficha que mover}
+
+  if not eMarcador1.bPause then eMarcador1.iTime:=eMarcador1.iTime+1;
+  if Tipo>1 then
+    if not eMarcador2.bPause then eMarcador2.iTime:=eMarcador2.iTime+1;
+
+  ClsWhere(0,wScreen1);
+
+  if Tipo=1 then
+    LimpiarPantalla
+  else
+    LimpiarPantallas;
+
+  with eMarcador1 do
+    begin
+      DibujaFondo(iX,iY,10,wScreen1);
+      DibujaPantalla(eMarcador1,Pantalla1,wScreen1);
+      if eBorrar.bBorrar then
+        BorrarLineas(eMarcador1,Pantalla1,Grabar^,true);
+      if eDeshaz.bDeshaz then
+        DeshazLineas(eMarcador1,Pantalla1,Grabar^,true)
+      else
+        DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+    end;
+
+  if Tipo>1 then
+    begin
+      with eMarcador2 do
+        begin
+          DibujaFondo(iX,iY,10,wScreen1);
+          DibujaPantalla(eMarcador2,Pantalla2,wScreen1);
+            if eBorrar.bBorrar then
+              BorrarLineas(eMarcador2,Pantalla2,Grabar^,true);
+            if eDeshaz.bDeshaz then
+            DeshazLineas(eMarcador2,Pantalla2,Grabar^,true)
+          else
+            DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+        end;
+
+      DibujaNext2(eMarcador1,eMarcador2,wScreen1,Grabar^);
+      PonerDatos2(eMarcador1,eMarcador2,wScreen1);
+    end
+  else
+    begin
+      {Ralentiza 1 Player}
+      with eMarcador1 do
+        DibujaFondo(iX,iY,10,wScreen2);
+      DibujaPantalla(eMarcador1,Pantalla1,wScreen2);
+
+      DibujaNext(eMarcador1,wScreen1,Grabar^);
+      PonerDatos(eMarcador1,wScreen1);
+    end;
+
+  WaitRetrace;
+  Flip(wScreen1,SegA000);
+
+
+  if WasDown[escScan] then
+    if Tipo<3 then
+      bSalir:=true
+    else
+      begin
+        bSalir:=true;
+        if (yWin1=0) and (yWin2=0) then
+          CeroCero:=true
+        else
+          CeroCero:=false;
+      end;
+
+  if KeyDown[AltScan] and KeyDown[ScanOf('X')] then
+    begin
+      OldKeyInt;
+      CloseGraph;
+      halt;
+    end;
+
+
+  with eMarcador1 do
+    begin
+      if not bPause and WasDown[yPause1] then
+        begin
+          bPause:=true;
+          bSoltadaPause:=false;
+          Grabacion(Grabar^,lTiempo,6);
+        end;
+      if bPause then if not WasDown[yPause1] then bSoltadaPause:=true;
+      if bPause and bSoltadaPause and WasDown[yPause1] then
+        begin
+          bPause:=false;
+          Grabacion(Grabar^,lTiempo,6);
+        end;
+      if bGameOver and not bSalir then GameOver(eMarcador1); {?}
+    end;
+
+
+  if Tipo>1 then
+    with eMarcador2 do
+      begin
+        if not bPause and WasDown[yPause2] then
+          begin
+            bPause:=true;
+            bSoltadaPause:=false;
+            Grabacion(Grabar^,lTiempo,12);
+          end;
+        if bPause then if not WasDown[yPause2] then bSoltadaPause:=true;
+        if bPause and bSoltadaPause and WasDown[yPause2] then
+          begin
+            bPause:=false;
+            Grabacion(Grabar^,lTiempo,12);
+          end;
+        if bGameOver and not bSalir then GameOver(eMarcador2);
+      end;
+
+
+  with eMarcador1 do
+    if not bGameOver and (not eDeshaz.bDeshaz) and (not eBorrar.bBorrar) and (not bPause) then
+      begin {solo movemos si no hacemos linea}
+
+        if eMarcador1.bPausaPpio and (not KeyDown[yDown1]) then
+          eMarcador1.bPausaPpio:=false;
+
+        if WasDown[yLeft1] then
+          if bIzquierda(ePieza,iPiezaX,iPiezaY,Pantalla1) then
+            begin
+              Grabacion(Grabar^,lTiempo,1);
+              BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+              iPiezaX:=iPiezaX-1;
+              DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1); {cambio, ver ppio programa}
+            end;
+
+        if WasDown[yRight1] then
+          if bDerecha(ePieza,iPiezaX,iPiezaY,Pantalla1) then
+            begin
+              Grabacion(Grabar^,lTiempo,2);
+              BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+              iPiezaX:=iPiezaX+1;
+              DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1); {cambio, ver ppio programa}
+            end;
+
+        if (KeyDown[yDown1]) and (not bPausaPpio) then
+          begin
+            Grabacion(Grabar^,lTiempo,3);
+            iTime:=0;
+            if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla1) then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+                iPiezaY:=iPiezaY+1;
+                iDrops:=iDrops+1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1); {cambio, ver ppio programa}
+              end
+            else
+              begin
+                p:=lPuntos;
+                inc(p,iDrops);
+                if p>MaxPuntos then
+                  p:=MaxPuntos;
+                lPuntos:=p;
+                iDrops:=0;
+                bSinFicha:=NuevaPieza(eMarcador1,Pantalla1,Grabar^)
+              end;
+          end;
+
+        if not bSinFicha then
+          begin
+            if not KeyDown[yDown1] then
+              iDrops:=0;
+
+            if WasDown[yK1] then
+              begin
+                Grabacion(Grabar^,lTiempo,5);
+                RotateDer(eMarcador1,Pantalla1);
+              end;
+
+            if WasDown[yJ1] or WasDown[yUp1] then
+              begin
+                Grabacion(Grabar^,lTiempo,4);
+                RotateIzq(eMarcador1,Pantalla1);
+              end;
+          end;
+
+        if iTime>=iLimite then
+          begin
+            iTime:=0;
+            if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla1) then
+              begin
+                BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla1);
+                iPiezaY:=iPiezaY+1;
+                DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla1); {cambio, ver ppio programa}
+              end
+            else
+              begin
+                NuevaPieza(eMarcador1,Pantalla1,Grabar^)
+              end;
+          end;
+      end;
+
+  { ----- +++++ ----- }
+
+  if Tipo>1 then
+    with eMarcador2 do
+     if not bGameOver and (not eBorrar.bBorrar) and (not eDeshaz.bDeshaz) and (not bPause) then
+       begin {solo movemos si no hacemos linea}
+
+         if eMarcador2.bPausaPpio and (not KeyDown[yDown2]) then
+           eMarcador2.bPausaPpio:=false;
+
+         if WasDown[yLeft2] then
+           if bIzquierda(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+             begin
+               Grabacion(Grabar^,lTiempo,7);
+               BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+               iPiezaX:=iPiezaX-1;
+               DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2); {cambio, ver ppio programa}
+             end;
+
+         if WasDown[yRight2] then
+           if bDerecha(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+             begin
+               Grabacion(Grabar^,lTiempo,8);
+               BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+               iPiezaX:=iPiezaX+1;
+               DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+             end;
+
+         if (KeyDown[yDown2]) and (not bPausaPpio) then
+           begin
+             Grabacion(Grabar^,lTiempo,9);
+             iTime:=0;
+             if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+               begin
+                 BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+                 iPiezaY:=iPiezaY+1;
+                 iDrops:=iDrops+1;
+                 DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2); {cambio, ver ppio programa}
+               end
+             else
+               begin
+                 p:=lPuntos;
+                 inc(p,iDrops);
+                 if p>MaxPuntos then
+                   p:=MaxPuntos;
+                 lPuntos:=p;
+                 iDrops:=0;
+                 bSinFicha:=NuevaPieza(eMarcador2,Pantalla2,Grabar^);
+               end;
+           end;
+
+         if not bSinFicha then
+           begin
+             if not KeyDown[yDown2] then
+               iDrops:=0;
+
+             if WasDown[yK2] then
+               begin
+                 Grabacion(Grabar^,lTiempo,11);
+                 RotateDer(eMarcador2,Pantalla2);
+               end;
+
+             if WasDown[yJ2] or WasDown[yUp2] then
+               begin
+                 Grabacion(Grabar^,lTiempo,10);
+                 RotateIzq(eMarcador2,Pantalla2);
+               end;
+           end;
+
+         if iTime>=iLimite then
+           begin
+             iTime:=0;
+             if bAbajo(ePieza,iPiezaX,iPiezaY,Pantalla2) then
+               begin
+                 BorraPieza(ePieza,iPiezaX,iPiezaY,Pantalla2);
+                 iPiezaY:=iPiezaY+1;
+                 DibujaPieza(ePieza,iPiezaX,iPiezaY,Pantalla2); {cambio, ver ppio programa}
+               end
+             else
+               begin
+                 NuevaPieza(eMarcador2,Pantalla2,Grabar^)
+               end;
+           end;
+       end;
+
+
+  ClearWasDownArray;
+
+  lTiempo:=lTiempo+1;
+  if lTiempo>MaxTiempo then
+    lTiempo:=MaxTiempo;
+
+
+
+  {+++++--------+++++}
+
+  {if lTiempo mod 60=59 then
+    begin
+      eMarcador1.eCrear.bCrear:=true;
+      inc(eMarcador1.eCrear.yCuantas,1);
+      eMarcador1.eCrear.yX:=VerLineaAbajo(Pantalla1);
+
+      eMarcador2.eCrear.bCrear:=true;
+      inc(eMarcador2.eCrear.yCuantas,1);
+      eMarcador2.eCrear.yX:=VerLineaAbajo(Pantalla2);
+    end;}
+
+  {+++++--------+++++}
+
+
+
+  Depurar;
+
+until bSalir;
+
+
+Grabacion(Grabar^,lTiempo-1,13);
+
+BorrarListaPiezas(ListaPiezas);
+
+if bRepeticion then
+  Repeticion(Grabar^,true);
+
+end; (*procedure Jugar*)
+
+
+
+
+
+procedure m2PlayerDeath(var bEnter:boolean);
+var
+  bCeroCero,b:boolean;
+
+begin
+yWin1:=0;
+yWin2:=0;
+
+bEnter:=false;
+bCeroCero:=false;
+IniciaEstad;
+
+repeat
+
+  if ((yWin1<>0) or (yWin2<>0)) or bCeroCero then
+    begin
+      b:=VerWinDeath(yWin1,yWin2,yWinDeath);
+      if not b then {pulsar Esc}
+        exit;
+    end;
+
+  if yWin1>=yWinDeath then
+    begin
+      VerGanadorDeath(eMarcador1.Nombre,bEnter);
+      exit;
+    end;
+  if yWin2>=yWinDeath then
+    begin
+      VerGanadorDeath(eMarcador2.Nombre,bEnter);
+      exit;
+    end;
+
+  Jugar(3,bCeroCero)
+
+until false;
+
+end; (*procedure m2PlayerDeath*)
+
+
+
+
+
+
+
+begin {*****************************   PPAL   ******************************}
+
+iSombras:=0; {Velocidad ensombrecimiento}
+yModo:=0;
+
+
+CPU:=CalculaCPU;
+
+
+IniciaSVGA256(yModo,'',iError);
+if iError<>0 then
+  begin
+    readln;
+    ClrScr;
+    Write('Error: ');
+    Writeln(iError);
+    readln;
+    Halt;
+  end;
+SetColor(15);
+
+
+LoadPaleta(Paleta,'rtetris.pal','',iError);
+SetPaleta(Paleta);
+
+
+yFondo:=46; {46, el rojo del fondo de las pantallas}
+
+for iCol8:=0 to 7 do
+  Color81[iCol8]:=95+iCol8;
+for iCol8:=0 to 7 do
+  Color82[iCol8]:=128+iCol8;
+for iCol8:=0 to 7 do
+  Color83[iCol8]:=64+iCol8; {61-73}
+
+
+mRecords;
+mOpciones;
+
+CargarImagenes;
+
+
+yJ1:=ScanOf('.');
+yK1:=CtrlScan;
+yRight1:=RightScan;
+yLeft1:=LeftScan;
+yDown1:=DownScan;
+yUp1:=UpScan;
+yPause1:=F12Scan;
+
+yJ2:=ScanOf('a');
+yK2:=ScanOf(' ');
+yRight2:=ScanOf('h');
+yLeft2:=ScanOf('f');
+yDown2:=ScanOf('g');
+yUp2:=ScanOf('t');
+yPause2:=F1Scan;
+
+yRepet:=EntScan;
+bRepet:=false;
+
+bMenu:=false;
+bDepurar:=false;
+
+
+wScreen1:=CrearPantalla;
+wScreen2:=CrearPantalla2;
+
+GetMem(Grabar,SizeOf(tGrabar));
+
+eMarcador1.Nombre:=NombreJug1;
+eMarcador2.Nombre:=NombreJug2;
+
+
+Presentacion;
+
+NewKeyInt;
+
+
+repeat
+
+  if VerRecords then
+    ElegirRepeticion
+
+  else
+    if Menu then
+      begin
+        Sombras;
+
+        if iPlayers=1 then
+          Jugar(1,b00)
+        else
+          if bDeath then
+            repeat
+              m2PlayerDeath(bEnt);
+            until not bEnt
+          else
+            Jugar(2,b00);
+
+      end
+    else
+      NewKeyInt;
+
+until bMenu;
+
+
+FreeMem(Grabar,SizeOf(tGrabar));
+
+OldKeyInt;
+CloseGraph;
+
+end.
+
+
